@@ -48,14 +48,14 @@ def check_data_availability():
     for source, path in data_sources.items():
         if Path(path).exists() and any(Path(path).iterdir()):
             available_sources.append(source)
-            print(f"✅ {source.upper()} data available")
+            print(f"{source.upper()} data available")
         else:
-            print(f"❌ {source.upper()} data not available")
+            print(f"{source.upper()} data not available")
     
     if not available_sources:
         raise Exception("No data sources available!")
     
-    print(f"📊 Available data sources: {', '.join(available_sources)}")
+    print(f"Available data sources: {', '.join(available_sources)}")
     return available_sources
 
 def run_spark_etl():
@@ -75,14 +75,14 @@ def run_spark_etl():
         ], cwd=project_root, capture_output=True, text=True)
         
         if result.returncode != 0:
-            print(f"❌ Spark ETL failed: {result.stderr}")
+            print(f"ERROR: Spark ETL failed: {result.stderr}")
             raise Exception(f"Spark ETL failed: {result.stderr}")
         
-        print("✅ Spark ETL pipeline completed successfully")
+        print("Spark ETL pipeline completed successfully")
         print(result.stdout)
         
     except Exception as e:
-        print(f"❌ Error running Spark ETL: {e}")
+        print(f"ERROR: Error running Spark ETL: {e}")
         raise
 
 def run_ml_training():
@@ -102,14 +102,14 @@ def run_ml_training():
         ], cwd=project_root, capture_output=True, text=True)
         
         if result.returncode != 0:
-            print(f"❌ ML training failed: {result.stderr}")
+            print(f"ERROR: ML training failed: {result.stderr}")
             raise Exception(f"ML training failed: {result.stderr}")
         
-        print("✅ ML model training completed successfully")
+        print("ML model training completed successfully")
         print(result.stdout)
         
     except Exception as e:
-        print(f"❌ Error running ML training: {e}")
+        print(f"ERROR: Error running ML training: {e}")
         raise
 
 def validate_data_quality():
@@ -118,7 +118,7 @@ def validate_data_quality():
     from pathlib import Path
     import os
     
-    print("🔍 Validating data quality...")
+    print("Validating data quality...")
     
     # Helper to count either Parquet mirrors or Delta directories
     def count_layer(human_name: str, parquet_dir: str, delta_dir: str) -> int:
@@ -135,10 +135,10 @@ def validate_data_quality():
             # Delta tables are directories; count immediate children
             delta_exists = any(delta_path.iterdir())
         if parquet_count > 0 or delta_exists:
-            print(f"✅ {human_name} layer present (parquet: {parquet_count}, delta: {int(delta_exists)})")
+            print(f"{human_name} layer present (parquet: {parquet_count}, delta: {int(delta_exists)})")
             return parquet_count
         else:
-            print(f"❌ {human_name} layer not found")
+            print(f"ERROR: {human_name} layer not found")
             raise Exception(f"{human_name} layer not found")
 
     # Validate layers
@@ -146,7 +146,7 @@ def validate_data_quality():
     count_layer("Silver", "data/silver", "data/delta/silver")
     count_layer("Gold",   "data/gold",   "data/delta/gold")
     
-    print("✅ Data quality validation passed")
+    print("Data quality validation passed")
 
 def generate_insights():
     """Generate insights and reports"""
@@ -155,7 +155,7 @@ def generate_insights():
     import json
     import os
     
-    print("📊 Generating insights and reports...")
+    print("Generating insights and reports...")
     
     # Load unified salary data
     # Prefer Parquet mirror; if missing, try folder; else try Delta via pyspark
@@ -197,12 +197,12 @@ def generate_insights():
         with open(insights_file, 'w') as f:
             json.dump(insights, f, indent=2)
         
-        print(f"✅ Insights saved to {insights_file}")
-        print(f"📊 Total records: {insights['total_records']}")
-        print(f"💰 Average salary: ${insights['avg_salary']:,.2f}")
+        print(f"Insights saved to {insights_file}")
+        print(f"Total records: {insights['total_records']}")
+        print(f"Average salary: ${insights['avg_salary']:,.2f}")
         
     else:
-        print("❌ Salary data not found for insights generation")
+        print("ERROR: Salary data not found for insights generation")
 
 def generate_market_report():
     """Generate markdown report summarizing trends and salaries"""

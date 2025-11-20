@@ -4,11 +4,18 @@ import pandas as pd
 import plotly.express as px
 from pathlib import Path
 import time
+import sys
+from datetime import datetime
+
+# Console logging function
+def console_log(message, level="INFO"):
+    """Print to console with timestamp for professor to see implementation"""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] [{level}] {message}", file=sys.stderr, flush=True)
 
 # Page config
 st.set_page_config(
-    page_title="Smart Career Planner",
-    page_icon="🎯",
+    page_title="Job Market Analysis Tool",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -17,15 +24,67 @@ st.set_page_config(
 @st.cache_data(ttl=300)  # Cache for 5 minutes
 def call_career_api(skills, target_role):
     try:
+        console_log(f"Calling career recommendations API with skills: {skills}, target_role: {target_role}")
         response = requests.post(
             "http://127.0.0.1:8001/career-recommendations",
             json={"current_skills": skills, "target_role": target_role},
             timeout=10
         )
         response.raise_for_status()
-        return response.json()
+        result = response.json()
+        console_log(f"API Response: {len(result.get('recommended_skills', []))} recommendations received")
+        console_log(f"Categories - Must Learn: {len(result.get('categorized_recommendations', {}).get('must_learn', []))}, "
+                   f"Should Learn: {len(result.get('categorized_recommendations', {}).get('should_learn', []))}, "
+                   f"Nice to Have: {len(result.get('categorized_recommendations', {}).get('nice_to_have', []))}")
+        return result
     except Exception as e:
+        console_log(f"API call failed: {e}", "ERROR")
         return {"error": str(e)}
+
+# ML Model API calls
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def call_ml_salary_prediction(years_experience, skills=None, currency="USD", period="YEARLY"):
+    """Call ML model API for salary prediction"""
+    try:
+        console_log(f"Calling ML salary prediction API - Years: {years_experience}, Currency: {currency}, Period: {period}")
+        response = requests.post(
+            "http://127.0.0.1:8000/predict-salary",
+            json={
+                "years_experience": float(years_experience),
+                "skills": skills or [],
+                "currency": currency,
+                "period": period
+            },
+            timeout=10
+        )
+        response.raise_for_status()
+        result = response.json()
+        console_log(f"ML Prediction: ${result.get('predicted_salary', 0):,.0f} (Lower: ${result.get('lower_bound', 0):,.0f}, Upper: ${result.get('upper_bound', 0):,.0f})")
+        return result
+    except Exception as e:
+        console_log(f"ML salary prediction API call failed: {e}", "ERROR")
+        return {"error": str(e), "predicted_salary": None}
+
+@st.cache_data(ttl=600)  # Cache for 10 minutes
+def call_skill_forecast(skill, horizon_months=12):
+    """Call ML skill forecasting API"""
+    try:
+        console_log(f"Calling skill forecast API - Skill: {skill}, Horizon: {horizon_months} months")
+        response = requests.post(
+            "http://127.0.0.1:8000/forecast-skills",
+            json={
+                "skill": skill,
+                "horizon_months": horizon_months
+            },
+            timeout=10
+        )
+        response.raise_for_status()
+        result = response.json()
+        console_log(f"Skill forecast received: {len(result.get('forecast', []))} data points")
+        return result
+    except Exception as e:
+        console_log(f"Skill forecast API call failed: {e}", "ERROR")
+        return {"error": str(e), "forecast": []}
 
 # Helper function to safely convert salary to numeric
 def safe_numeric_salary(df, column='salary_amount'):
@@ -35,14 +94,36 @@ def safe_numeric_salary(df, column='salary_amount'):
     return pd.to_numeric(df[column], errors='coerce')
 
 # Currency conversion rates (approximate, as of 2024)
+# Rates are: 1 USD = X of currency (e.g., 1 USD = 0.92 EUR means EUR is worth more)
 CURRENCY_RATES = {
     'USD': 1.0,
-    'EUR': 1.08,
-    'GBP': 1.27,
-    'CAD': 0.73,
-    'AUD': 0.66,
-    'BBD': 0.50,  # Barbadian Dollar
+    'EUR': 0.92,  # 1 USD = 0.92 EUR (EUR is worth more)
+    'GBP': 0.79,  # 1 USD = 0.79 GBP (GBP is worth more)
+    'CAD': 1.37,  # 1 USD = 1.37 CAD (CAD is worth less)
+    'AUD': 1.52,  # 1 USD = 1.52 AUD (AUD is worth less)
+    'BBD': 2.00,  # Barbadian Dollar
 }
+
+# Currency symbols for display
+CURRENCY_SYMBOLS = {
+    'USD': '$',
+    'EUR': '€',
+    'GBP': '£',
+    'CAD': 'C$',
+    'AUD': 'A$',
+    'BBD': 'Bds$',
+}
+
+def convert_from_usd(usd_amount, target_currency):
+    """Convert USD amount to target currency"""
+    if target_currency.upper() == 'USD':
+        return usd_amount
+    rate = CURRENCY_RATES.get(target_currency.upper(), 1.0)
+    return usd_amount * rate
+
+def get_currency_symbol(currency):
+    """Get currency symbol for display"""
+    return CURRENCY_SYMBOLS.get(currency.upper(), '$')
 
 def convert_to_yearly_usd(salary, currency, period):
     """Convert salary to yearly USD for proper comparison"""
@@ -72,17 +153,22 @@ def convert_to_yearly_usd(salary, currency, period):
 
 def normalize_salaries_to_yearly_usd(df):
     """Normalize all salaries to yearly USD for comparison"""
+    console_log("Starting salary normalization to yearly USD...")
     if df.empty or 'salary_amount' not in df.columns:
+        console_log("DataFrame is empty or missing salary_amount column", "WARNING")
         return df.copy()
     
+    console_log(f"Input: {len(df)} salary records")
     df_copy = df.copy()
     numeric_salaries = safe_numeric_salary(df_copy)
     df_copy['salary_amount_numeric'] = numeric_salaries
+    console_log(f"Converted to numeric: {numeric_salaries.notna().sum()} valid values")
     
     # Convert to yearly USD
     currency_col = df_copy.get('currency', pd.Series(['USD'] * len(df_copy)))
     period_col = df_copy.get('period', pd.Series(['YEARLY'] * len(df_copy)))
     
+    console_log("Converting salaries to yearly USD...")
     df_copy['salary_yearly_usd'] = df_copy.apply(
         lambda row: convert_to_yearly_usd(
             row.get('salary_amount_numeric'),
@@ -92,10 +178,19 @@ def normalize_salaries_to_yearly_usd(df):
     )
     
     # Filter out invalid conversions
+    before_filter = len(df_copy)
     df_copy = df_copy[df_copy['salary_yearly_usd'].notna() & (df_copy['salary_yearly_usd'] > 0)]
+    console_log(f"After filtering invalid conversions: {len(df_copy)} records (removed {before_filter - len(df_copy)})")
     
     # Filter out unrealistic salaries (too low or too high)
+    before_range_filter = len(df_copy)
     df_copy = df_copy[(df_copy['salary_yearly_usd'] >= 20000) & (df_copy['salary_yearly_usd'] <= 500000)]
+    console_log(f"After filtering unrealistic salaries: {len(df_copy)} records (removed {before_range_filter - len(df_copy)})")
+    
+    if not df_copy.empty:
+        console_log(f"Final normalized data: {len(df_copy)} records")
+        console_log(f"Salary range: ${df_copy['salary_yearly_usd'].min():,.0f} - ${df_copy['salary_yearly_usd'].max():,.0f}")
+        console_log(f"Average salary: ${df_copy['salary_yearly_usd'].mean():,.0f}")
     
     return df_copy
 
@@ -274,61 +369,88 @@ def filter_valid_job_titles(df, title_column='title'):
 @st.cache_data(ttl=600)  # Cache for 10 minutes
 def load_skills_demand():
     try:
+        console_log("Loading skills demand data from data/gold/skills_demand.parquet")
         df = pd.read_parquet('data/gold/skills_demand.parquet')
+        console_log(f"Successfully loaded {len(df)} skills records. Columns: {df.columns.tolist()}")
         return df
     except Exception as e:
+        console_log(f"Error loading skills demand: {e}", "ERROR")
         st.error(f"Error loading skills demand: {e}")
         return pd.DataFrame()
 
 @st.cache_data(ttl=600)
 def load_unified_salaries():
     try:
+        console_log("Loading unified salaries data...")
         # Try single parquet file first
         single_file = Path('data/silver/unified_salaries.parquet')
         if single_file.exists():
+            console_log(f"Found single parquet file: {single_file}")
             df = pd.read_parquet(single_file)
             if not df.empty:
+                console_log(f"Loaded {len(df)} salary records from single file. Columns: {df.columns.tolist()}")
                 return df
         
         # Try directory with parquet files
         dir_path = Path('data/silver/unified_salaries')
         if dir_path.exists() and dir_path.is_dir():
             files = list(dir_path.glob('*.parquet'))
+            console_log(f"Found {len(files)} parquet files in directory: {dir_path}")
             if files:
                 dfs = [pd.read_parquet(f) for f in files]
                 df = pd.concat(dfs, ignore_index=True)
                 if not df.empty:
+                    console_log(f"Loaded {len(df)} salary records from {len(files)} files. Columns: {df.columns.tolist()}")
                     return df
         
+        console_log("No salary data found", "WARNING")
         return pd.DataFrame()
     except Exception as e:
+        console_log(f"Error loading unified salaries: {e}", "ERROR")
         return pd.DataFrame()
 
 @st.cache_data(ttl=600)
 def load_job_postings():
     try:
+        console_log("Loading job postings data...")
         # Try to load from silver unified_postings first (cleaned data)
         unified_path = Path('data/silver/unified_postings.parquet')
         if unified_path.exists():
+            console_log(f"Loading from silver layer: {unified_path}")
             df = pd.read_parquet(unified_path)
+            console_log(f"Loaded {len(df)} job postings from silver layer")
             # Map job_title to title for consistency
             if 'job_title' in df.columns and 'title' not in df.columns:
                 df['title'] = df['job_title']
             # Filter to valid job titles
+            df_before = len(df)
             df = filter_valid_job_titles(df, 'title')
+            df_after = len(df)
+            console_log(f"Filtered job titles: {df_before} -> {df_after} (removed {df_before - df_after} invalid titles)")
             if not df.empty:
+                console_log(f"Returning {len(df)} valid job postings. Columns: {df.columns.tolist()}")
                 return df
         
         # Fallback to bronze data with filtering
+        console_log("Falling back to bronze layer data...")
         files = list(Path('data/bronze/job_postings').glob('*.parquet'))[:3]  # Load first 3 files
+        console_log(f"Found {len(files)} bronze parquet files")
         if files:
             dfs = [pd.read_parquet(f) for f in files]
             df = pd.concat(dfs, ignore_index=True)
+            console_log(f"Loaded {len(df)} job postings from bronze layer")
             # Filter to valid job titles
+            df_before = len(df)
             df = filter_valid_job_titles(df, 'title')
+            df_after = len(df)
+            console_log(f"Filtered job titles: {df_before} -> {df_after} (removed {df_before - df_after} invalid titles)")
+            if not df.empty:
+                console_log(f"Returning {len(df)} valid job postings")
             return df
+        console_log("No job postings data found", "WARNING")
         return pd.DataFrame()
     except Exception as e:
+        console_log(f"Error loading job postings: {e}", "ERROR")
         return pd.DataFrame()
 
 @st.cache_data(ttl=600)
@@ -371,7 +493,11 @@ def load_market_summary():
 
 # Main app
 def main():
-    st.title("🎯 Smart Career Planner")
+    console_log("=" * 80)
+    console_log("Job Market Analysis Tool - Application Started")
+    console_log("=" * 80)
+    
+    st.title("Job Market Analysis Tool")
     st.markdown("Get personalized skill recommendations based on your current skills and target role.")
     
     # Sidebar navigation
@@ -384,6 +510,8 @@ def main():
         "Real-time Trends",
         "About"
     ])
+    
+    console_log(f"User navigated to: {page}")
     
     if page == "Career Planner":
         show_career_planner()
@@ -399,7 +527,7 @@ def main():
         show_about()
 
 def show_career_planner():
-    st.header("🎯 Personalized Career Recommendations")
+    st.header("Personalized Career Recommendations")
     
     # Input form
     col1, col2 = st.columns(2)
@@ -419,33 +547,59 @@ def show_career_planner():
         )
     
     # Get recommendations button
-    if st.button("🚀 Get Smart Recommendations", type="primary", use_container_width=True):
+    if st.button("Get Smart Recommendations", type="primary", use_container_width=True):
+        console_log("-" * 80)
+        console_log("CAREER PLANNER: User clicked 'Get Smart Recommendations'")
+        console_log(f"Input - Current Skills: {current_skills}")
+        console_log(f"Input - Target Role: {target_role}")
+        
         if not current_skills.strip():
+            console_log("Validation failed: No skills entered", "WARNING")
             st.warning("Please enter your current skills")
             return
         
-        with st.spinner("🤖 Analyzing your skills and generating personalized recommendations..."):
+        with st.spinner("Analyzing your skills and generating personalized recommendations..."):
             skills_list = [s.strip().lower() for s in current_skills.split(",") if s.strip()]
+            console_log(f"Processed skills list: {skills_list}")
             result = call_career_api(skills_list, target_role)
             
             if result.get("error"):
+                console_log(f"Error in API response: {result['error']}", "ERROR")
                 st.error(f"Error: {result['error']}")
                 return
             
             # Display results
+            console_log("Displaying recommendations to user...")
             display_recommendations(result)
 
 def display_recommendations(data):
-    st.success(f"🎉 Found {len(data.get('recommended_skills', []))} personalized recommendations!")
+    # Calculate actual number of unique recommendations
+    categorized = data.get("categorized_recommendations", {})
+    all_recommended = set()
+    
+    # Collect all unique skills from all categories
+    if categorized:
+        all_recommended.update(categorized.get("must_learn", []))
+        all_recommended.update(categorized.get("should_learn", []))
+        all_recommended.update(categorized.get("nice_to_have", []))
+    
+    # Also include the main recommended_skills list if available
+    main_recommendations = data.get("recommended_skills", [])
+    if main_recommendations:
+        all_recommended.update(main_recommendations)
+    
+    # Get the actual count
+    actual_count = len(all_recommended) if all_recommended else len(main_recommendations)
+    
+    st.success("Personalized recommendations are ready!")
     
     # Categorized recommendations
-    categorized = data.get("categorized_recommendations", {})
     
     if categorized:
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.subheader("🔥 Must Learn")
+            st.subheader("Must Learn")
             st.markdown("*Critical for your target role*")
             must_learn = categorized.get("must_learn", [])
             if must_learn:
@@ -455,7 +609,7 @@ def display_recommendations(data):
                 st.info("No must-have skills identified")
         
         with col2:
-            st.subheader("📈 Should Learn")
+            st.subheader("Should Learn")
             st.markdown("*Important for career growth*")
             should_learn = categorized.get("should_learn", [])
             if should_learn:
@@ -465,7 +619,7 @@ def display_recommendations(data):
                 st.info("No should-have skills identified")
         
         with col3:
-            st.subheader("✨ Nice to Have")
+            st.subheader("Nice to Have")
             st.markdown("*Future career opportunities*")
             nice_to_have = categorized.get("nice_to_have", [])
             if nice_to_have:
@@ -478,7 +632,7 @@ def display_recommendations(data):
     learning_path = data.get("learning_path", {})
     if learning_path:
         st.markdown("---")
-        st.subheader("🎯 Your Learning Path")
+        st.subheader("Your Learning Path")
         
         col1, col2, col3 = st.columns(3)
         
@@ -502,7 +656,7 @@ def display_recommendations(data):
     
     # Summary metrics
     st.markdown("---")
-    st.subheader("📊 Analysis Summary")
+    st.subheader("Analysis Summary")
     
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -510,17 +664,29 @@ def display_recommendations(data):
     with col2:
         st.metric("Your Current Skills", len(data.get('your_skills', [])))
     with col3:
-        st.metric("Recommendations", len(data.get('recommended_skills', [])))
+        st.metric("Recommendations", actual_count)
 
 def show_market_overview():
-    st.header("📊 Job Market Overview")
+    console_log("-" * 80)
+    console_log("MARKET OVERVIEW: Loading market data...")
+    st.header("Job Market Overview")
     
     # Load real data
     with st.spinner("Loading real market data..."):
+        console_log("Loading market summary...")
         data = load_market_summary()
+        console_log(f"Market Summary - Total Jobs: {data.get('total_jobs', 0)}, Avg Salary: ${data.get('avg_salary', 0):,.0f}")
+        
+        console_log("Loading skills demand data...")
         skills_df = load_skills_demand()
+        
+        console_log("Loading unified salaries data...")
         salaries_df = load_unified_salaries()
+        
+        console_log("Loading job postings data...")
         jobs_df = load_job_postings()
+        
+        console_log(f"Data loaded - Skills: {len(skills_df)}, Salaries: {len(salaries_df)}, Jobs: {len(jobs_df)}")
     
     # KPIs
     col1, col2, col3, col4 = st.columns(4)
@@ -615,15 +781,83 @@ def show_market_overview():
                     st.info("No period data available")
 
 def show_skill_analysis():
-    st.header("📊 Skill Analysis")
+    console_log("-" * 80)
+    console_log("SKILL ANALYSIS: Loading skills data...")
+    st.header("Skill Analysis")
     
     # Load real skills data
     with st.spinner("Loading real skills data..."):
         skills_df = load_skills_demand()
+        console_log(f"Loaded {len(skills_df)} skills for analysis")
     
     if skills_df.empty:
         st.warning("No skills data available. Please run the ETL pipeline first.")
         return
+    
+    # ML Skill Forecasting Section
+    st.subheader("ML-Powered Skill Demand Forecasting")
+    st.info("Predict future skill demand trends using time series forecasting model.")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Get top skills for selection
+        if not skills_df.empty and 'skill' in skills_df.columns:
+            top_skills = skills_df.nlargest(20, 'count')['skill'].tolist()
+            selected_skill = st.selectbox("Select Skill to Forecast", top_skills, index=0)
+        else:
+            selected_skill = st.text_input("Enter Skill Name", placeholder="python")
+    
+    with col2:
+        forecast_months = st.slider("Forecast Horizon (months)", 6, 24, 12)
+    
+    if st.button("Get Skill Forecast", type="primary"):
+        console_log(f"SKILL FORECAST: Requesting forecast for '{selected_skill}' for {forecast_months} months")
+        with st.spinner(f"Running ML forecast for {selected_skill}..."):
+            forecast_result = call_skill_forecast(selected_skill, forecast_months)
+            
+            if forecast_result.get("error") or not forecast_result.get("forecast"):
+                if forecast_result.get("available_skills"):
+                    st.warning(f"Forecast not available for '{selected_skill}'. Available skills: {', '.join(forecast_result['available_skills'][:10])}")
+                else:
+                    st.warning(f"Forecast unavailable: {forecast_result.get('error', 'Model not available. Run src/ml/skill_forecasting.py')}")
+            else:
+                forecast_data = forecast_result.get("forecast", [])
+                if forecast_data:
+                    # Convert to DataFrame for visualization
+                    forecast_df = pd.DataFrame(forecast_data)
+                    forecast_df['date'] = pd.to_datetime(forecast_df['date'])
+                    forecast_df = forecast_df.sort_values('date')
+                    
+                    st.success(f"Forecast generated for {selected_skill}")
+                    
+                    # Plot forecast
+                    fig = px.line(forecast_df, x='date', y='forecast',
+                                 title=f"Skill Demand Forecast: {selected_skill}",
+                                 labels={'date': 'Date', 'forecast': 'Predicted Demand'},
+                                 markers=True)
+                    fig.update_traces(line_color='#1f77b4', line_width=3)
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Show forecast table
+                    st.subheader("Forecast Details")
+                    forecast_df['date'] = forecast_df['date'].dt.strftime('%Y-%m')
+                    forecast_df.columns = ['Date', 'Predicted Demand']
+                    st.dataframe(forecast_df, use_container_width=True, hide_index=True)
+                    
+                    # Summary metrics
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Current Demand", f"{forecast_df['Predicted Demand'].iloc[0]:,.0f}")
+                    with col2:
+                        st.metric("Peak Demand", f"{forecast_df['Predicted Demand'].max():,.0f}")
+                    with col3:
+                        avg_growth = ((forecast_df['Predicted Demand'].iloc[-1] / forecast_df['Predicted Demand'].iloc[0]) - 1) * 100
+                        st.metric("Avg Growth", f"{avg_growth:.1f}%")
+                else:
+                    st.warning("No forecast data returned")
+    
+    st.divider()
     
     # Skill demand chart
     st.subheader("Top In-Demand Skills (Real Data)")
@@ -658,7 +892,7 @@ def show_skill_analysis():
             st.info("Skills table data not available")
     
     # Skill insights
-    st.subheader("📈 Skill Insights")
+    st.subheader("Skill Insights")
     
     col1, col2, col3 = st.columns(3)
     
@@ -693,75 +927,172 @@ def show_skill_analysis():
             st.plotly_chart(fig, use_container_width=True)
 
 def show_salary_intelligence():
-    st.header("💰 Salary Intelligence")
+    console_log("-" * 80)
+    console_log("SALARY INTELLIGENCE: Loading salary data...")
+    st.header("Salary Intelligence")
     
     # Load real salary data
     with st.spinner("Loading real salary data..."):
         salaries_df = load_unified_salaries()
         jobs_df = load_job_postings()
+        console_log(f"Loaded {len(salaries_df)} salary records")
     
     if salaries_df.empty or 'salary_amount' not in salaries_df.columns:
+        console_log("No salary data available", "WARNING")
         st.warning("No salary data available. Please run the ETL pipeline first.")
         return
     
     # Normalize all salaries to yearly USD for proper comparison
+    console_log("Normalizing salaries to yearly USD...")
     salaries_normalized = normalize_salaries_to_yearly_usd(salaries_df)
     
     if salaries_normalized.empty:
         st.warning("No valid salary data after normalization. Please check the data.")
         return
     
-    # Salary calculator
-    st.subheader("Salary Calculator (Based on Real Data)")
-    st.info("💡 All salaries are normalized to yearly USD for accurate comparison across currencies and pay periods.")
+    # ML-Powered Salary Calculator
+    st.subheader("ML-Powered Salary Prediction")
     
-    col1, col2 = st.columns(2)
+    # Toggle between ML model and statistical calculation
+    use_ml_model = st.checkbox("Use ML Model (XGBoost) for Prediction", value=True, 
+                               help="Toggle to use trained ML model or statistical calculation")
+    
+    if use_ml_model:
+        st.info("Using trained XGBoost model for salary prediction with confidence intervals.")
+    else:
+        st.info("Using statistical calculation based on real data averages.")
+    
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         years_exp = st.slider("Years of Experience", 0, 20, 5)
     with col2:
+        currency = st.selectbox("Currency", ["USD", "EUR", "GBP", "CAD", "AUD"], index=0)
+    with col3:
         output_period = st.selectbox("Display Salary As", ["YEARLY", "MONTHLY", "WEEKLY", "HOURLY"], index=0)
     
-    if st.button("Calculate Salary", type="primary"):
-        with st.spinner("Calculating salary based on real data..."):
-            # Use normalized yearly USD salaries
-            if 'salary_yearly_usd' in salaries_normalized.columns:
-                base_salary_yearly = float(salaries_normalized['salary_yearly_usd'].mean())
+    # Optional skills input for ML model
+    skills_input = st.text_input("Your Skills (comma-separated, optional)", 
+                                 placeholder="python, sql, machine learning",
+                                 help="Enter your skills to improve ML prediction accuracy")
+    skills_list = [s.strip() for s in skills_input.split(",") if s.strip()] if skills_input else []
+    
+    if st.button("Predict Salary", type="primary"):
+        console_log("-" * 80)
+        console_log(f"SALARY PREDICTION: Years: {years_exp}, Currency: {currency}, Period: {output_period}, Use ML: {use_ml_model}")
+        
+        ml_result = None
+        ml_success = False
+        
+        if use_ml_model:
+            # Use ML model prediction
+            with st.spinner("Running ML model prediction..."):
+                ml_result = call_ml_salary_prediction(years_exp, skills_list, currency, output_period)
                 
-                # Experience adjustment (10% per year, capped at 100% increase)
-                exp_multiplier = min(1 + (years_exp * 0.1), 2.0)
-                adjusted_salary_yearly = base_salary_yearly * exp_multiplier
-                
-                # Convert to requested period
-                if output_period == "YEARLY":
-                    display_salary = adjusted_salary_yearly
-                    period_label = "per year"
-                elif output_period == "MONTHLY":
-                    display_salary = adjusted_salary_yearly / 12
-                    period_label = "per month"
-                elif output_period == "WEEKLY":
-                    display_salary = adjusted_salary_yearly / 52
-                    period_label = "per week"
-                elif output_period == "HOURLY":
-                    display_salary = adjusted_salary_yearly / 2080
-                    period_label = "per hour"
+                if ml_result.get("error") or ml_result.get("predicted_salary") is None:
+                    st.warning(f"ML model unavailable: {ml_result.get('message', ml_result.get('error', 'Unknown error'))}")
+                    st.info("Falling back to statistical calculation...")
+                    ml_success = False
                 else:
-                    display_salary = adjusted_salary_yearly
-                    period_label = "per year"
-                
-                st.success(f"💰 Estimated Salary: **${display_salary:,.2f} {period_label}**")
-                st.info(f"📊 Based on {len(salaries_normalized):,} real salary records (normalized to yearly USD)")
-                
-                # Show breakdown
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Base Salary (0 years)", f"${base_salary_yearly:,.0f}/year")
-                with col2:
-                    st.metric("Your Experience", f"{years_exp} years")
-                with col3:
-                    st.metric("Adjusted Salary", f"${adjusted_salary_yearly:,.0f}/year")
-            else:
-                st.warning("Unable to calculate salary. Data normalization failed.")
+                    ml_success = True
+                    predicted_usd = ml_result.get("predicted_salary", 0)
+                    lower_usd = ml_result.get("lower_bound", predicted_usd * 0.8)
+                    upper_usd = ml_result.get("upper_bound", predicted_usd * 1.2)
+                    
+                    # Convert from USD to selected currency
+                    predicted = convert_from_usd(predicted_usd, currency)
+                    lower = convert_from_usd(lower_usd, currency)
+                    upper = convert_from_usd(upper_usd, currency)
+                    
+                    # Convert to requested period if needed
+                    if output_period == "YEARLY":
+                        display_pred = predicted
+                        display_lower = lower
+                        display_upper = upper
+                        period_label = "per year"
+                    elif output_period == "MONTHLY":
+                        display_pred = predicted / 12
+                        display_lower = lower / 12
+                        display_upper = upper / 12
+                        period_label = "per month"
+                    elif output_period == "WEEKLY":
+                        display_pred = predicted / 52
+                        display_lower = lower / 52
+                        display_upper = upper / 52
+                        period_label = "per week"
+                    elif output_period == "HOURLY":
+                        display_pred = predicted / 2080
+                        display_lower = lower / 2080
+                        display_upper = upper / 2080
+                        period_label = "per hour"
+                    else:
+                        display_pred = predicted
+                        display_lower = lower
+                        display_upper = upper
+                        period_label = "per year"
+                    
+                    currency_symbol = get_currency_symbol(currency)
+                    st.success(f"ML Predicted Salary: **{currency_symbol}{display_pred:,.2f} {period_label}**")
+                    st.info(f"Confidence Range: {currency_symbol}{display_lower:,.2f} - {currency_symbol}{display_upper:,.2f} {period_label}")
+                    
+                    # Show metrics
+                    currency_symbol = get_currency_symbol(currency)
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Predicted Salary", f"{currency_symbol}{display_pred:,.0f}")
+                    with col2:
+                        st.metric("Lower Bound", f"{currency_symbol}{display_lower:,.0f}")
+                    with col3:
+                        st.metric("Upper Bound", f"{currency_symbol}{display_upper:,.0f}")
+        
+        if not use_ml_model or not ml_success:
+            # Fallback to statistical calculation
+            with st.spinner("Calculating salary based on real data..."):
+                if 'salary_yearly_usd' in salaries_normalized.columns:
+                    base_salary_yearly_usd = float(salaries_normalized['salary_yearly_usd'].mean())
+                    console_log(f"Base salary (0 years): ${base_salary_yearly_usd:,.2f}/year USD")
+                    
+                    # Experience adjustment (10% per year, capped at 100% increase)
+                    exp_multiplier = min(1 + (years_exp * 0.1), 2.0)
+                    adjusted_salary_yearly_usd = base_salary_yearly_usd * exp_multiplier
+                    console_log(f"Experience multiplier: {exp_multiplier}x (for {years_exp} years)")
+                    console_log(f"Adjusted salary: ${adjusted_salary_yearly_usd:,.2f}/year USD")
+                    
+                    # Convert from USD to selected currency
+                    adjusted_salary_yearly = convert_from_usd(adjusted_salary_yearly_usd, currency)
+                    base_salary_yearly = convert_from_usd(base_salary_yearly_usd, currency)
+                    
+                    # Convert to requested period
+                    if output_period == "YEARLY":
+                        display_salary = adjusted_salary_yearly
+                        period_label = "per year"
+                    elif output_period == "MONTHLY":
+                        display_salary = adjusted_salary_yearly / 12
+                        period_label = "per month"
+                    elif output_period == "WEEKLY":
+                        display_salary = adjusted_salary_yearly / 52
+                        period_label = "per week"
+                    elif output_period == "HOURLY":
+                        display_salary = adjusted_salary_yearly / 2080
+                        period_label = "per hour"
+                    else:
+                        display_salary = adjusted_salary_yearly
+                        period_label = "per year"
+                    
+                    currency_symbol = get_currency_symbol(currency)
+                    st.success(f"Estimated Salary (Statistical): **{currency_symbol}{display_salary:,.2f} {period_label}**")
+                    st.info(f"Based on {len(salaries_normalized):,} real salary records (normalized to yearly USD)")
+                    
+                    # Show breakdown
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Base Salary (0 years)", f"{currency_symbol}{base_salary_yearly:,.0f}/year")
+                    with col2:
+                        st.metric("Your Experience", f"{years_exp} years")
+                    with col3:
+                        st.metric("Adjusted Salary", f"{currency_symbol}{adjusted_salary_yearly:,.0f}/year")
+                else:
+                    st.warning("Unable to calculate salary. Data normalization failed.")
     
     # Real salary distributions (using normalized yearly USD)
     st.subheader("Salary Distributions (Normalized to Yearly USD)")
@@ -802,7 +1133,7 @@ def show_salary_intelligence():
             st.info("Period data not available")
     
     # Salary insights (using normalized data)
-    st.subheader("📊 Salary Insights (All normalized to Yearly USD)")
+    st.subheader("Salary Insights (All normalized to Yearly USD)")
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -847,20 +1178,23 @@ def show_salary_intelligence():
         st.dataframe(percentile_df, use_container_width=True, hide_index=True)
 
 def show_realtime_trends():
-    st.header("📈 Real-time Trends")
+    console_log("-" * 80)
+    console_log("REAL-TIME TRENDS: Loading trend data...")
+    st.header("Real-time Trends")
     
     # Load real data
     with st.spinner("Loading real market trends..."):
         jobs_df = load_job_postings()
         skills_df = load_skills_demand()
         salaries_df = load_unified_salaries()
+        console_log(f"Trend data loaded - Jobs: {len(jobs_df)}, Skills: {len(skills_df)}, Salaries: {len(salaries_df)}")
     
     if jobs_df.empty:
         st.warning("No job postings data available. Please run the ETL pipeline first.")
         return
     
     # Trending jobs (real data)
-    st.subheader("🔥 Trending Job Titles (Real Data)")
+    st.subheader("Trending Job Titles (Real Data)")
     
     # Get top job titles
     top_jobs = jobs_df['title'].value_counts().head(10).reset_index()
@@ -883,7 +1217,7 @@ def show_realtime_trends():
             st.info("No job titles data available")
     
     # Trending skills (real data)
-    st.subheader("🚀 Trending Skills (Real Data)")
+    st.subheader("Trending Skills (Real Data)")
     
     if not skills_df.empty:
         col1, col2 = st.columns(2)
@@ -905,7 +1239,7 @@ def show_realtime_trends():
                 st.plotly_chart(fig, use_container_width=True)
     
     # Market insights (real data)
-    st.subheader("📊 Market Insights (Real Data)")
+    st.subheader("Market Insights (Real Data)")
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -954,7 +1288,7 @@ def show_realtime_trends():
                 st.plotly_chart(fig, use_container_width=True)
     
     # Recent trends analysis
-    st.subheader("📈 Trend Analysis")
+    st.subheader("Trend Analysis")
     
     col1, col2 = st.columns(2)
     
@@ -989,17 +1323,17 @@ def show_realtime_trends():
                 st.plotly_chart(fig, use_container_width=True)
 
 def show_about():
-    st.header("📚 About Job Market Analysis Platform")
+    st.header("About Job Market Analysis Platform")
     
     st.markdown("""
-    ## 🎯 Project Overview
+    ## Project Overview
     
     The **Job Market Analysis Platform** is a comprehensive Big Data analytics solution designed to provide 
     real-time insights into the technology job market. This platform processes and analyzes massive datasets 
     from multiple sources to deliver actionable career intelligence, salary predictions, and skill demand 
     forecasting.
     
-    ### 📊 Scale & Impact
+    ### Scale & Impact
     
     - **129.68 GB** of data processed (6.5x the original 20GB+ requirement)
     - **2.7+ million records** across 4 major data sources
@@ -1008,7 +1342,7 @@ def show_about():
     - **2.2+ million job postings** from Kaggle datasets
     - **Real-time data processing** with distributed computing capabilities
     
-    ## 🏗️ Architecture & Technology
+    ## Architecture & Technology
     
     ### Data Lake Architecture
     This platform implements a modern 3-layer data lake architecture:
@@ -1027,53 +1361,53 @@ def show_about():
     - **FastAPI**: High-performance REST API for data access
     - **Streamlit**: Interactive dashboard for data visualization
     
-    ## 🚀 Key Features
+    ## Key Features
     
-    ### 💼 Career Intelligence
+    ### Career Intelligence
     - **Personalized Skill Recommendations**: AI-powered suggestions based on your current skills and target role
     - **Role-Specific Learning Paths**: Structured progression from immediate focus to future goals
     - **Categorized Learning**: Must Learn, Should Learn, and Nice to Have skills
     - **Dynamic Recommendations**: Different suggestions for iOS, Data Science, Web Development, and DevOps roles
     
-    ### 📈 Market Analytics
+    ### Market Analytics
     - **Real-time Job Market Trends**: Live insights into trending job titles and skills
     - **Salary Intelligence**: Comprehensive salary analysis with currency conversion and pay period normalization
     - **Skill Demand Analysis**: In-depth analysis of in-demand skills and categories
     - **Market Overview**: KPIs, trends, and growth metrics
     
-    ### 🤖 Machine Learning
+    ### Machine Learning
     - **Salary Prediction**: XGBoost-based models for accurate salary estimation
     - **Skill Forecasting**: Predictive analytics for emerging skill trends
     - **Experience-based Adjustments**: Intelligent salary calculations based on years of experience
     
-    ## 👥 Development Team
+    ## Development Team
     
     This project was developed by a dedicated team of data engineers, developers, and machine learning specialists:
     
-    ### 🚀 **Manikanta** - Project Lead & Data Engineering
+    ### **Manikanta** - Project Lead & Data Engineering
     - **Responsibilities**: Environment setup, Apache Spark ETL pipeline development, Apache Airflow orchestration, Delta Lake integration
     - **Achievements**: Built distributed ETL pipeline processing 129.68 GB of data, automated workflow orchestration, implemented data lake architecture
     
-    ### 📊 **Sheila** - Data Collection & Preprocessing
+    ### **Sheila** - Data Collection & Preprocessing
     - **Responsibilities**: Data ingestion from multiple sources, data quality assurance, preprocessing pipelines
     - **Achievements**: Collected and processed data from GitHub Archive, StackOverflow, Kaggle, and BLS sources
     
-    ### 🌐 **Deepti** - API & Dashboard Development
+    ### **Deepti** - API & Dashboard Development
     - **Responsibilities**: FastAPI service development, Streamlit dashboard creation, user interface design
     - **Achievements**: Built Smart Career API with intelligent recommendations, developed interactive 6-tab dashboard with real-time visualizations
     
-    ### 🤖 **Rahul** - Machine Learning & Model Tracking
+    ### **Rahul** - Machine Learning & Model Tracking
     - **Responsibilities**: ML model development, XGBoost implementation, MLflow integration, model evaluation
     - **Achievements**: Developed salary prediction models, implemented skill forecasting, set up ML experiment tracking
     
-    ## 📚 Data Sources
+    ## Data Sources
     
     - **GitHub Archive**: Real-time developer activity and repository data (123.43 GB)
     - **StackOverflow Developer Surveys**: Annual surveys from 2019-2025 (514K+ responses)
     - **Kaggle Job Market Data**: Comprehensive job postings and salary information (2.2M+ records)
     - **BLS Employment Data**: Official employment statistics and trends
     
-    ## 🎓 Academic Project
+    ## Academic Project
     
     This platform was developed as part of a Big Data Analytics course project, demonstrating:
     - **Big Data Characteristics**: Volume (129GB), Variety (4 sources), Velocity (real-time + batch), Veracity (quality assurance)
@@ -1082,7 +1416,7 @@ def show_about():
     - **ML at Scale**: Production-ready machine learning pipelines
     - **Real-time Analytics**: Live dashboards and APIs
     
-    ## 🔧 Technical Highlights
+    ## Technical Highlights
     
     - **Performance**: <100ms API response times, <1 second dashboard load times
     - **Scalability**: Distributed processing capable of handling 100+ GB datasets
@@ -1090,12 +1424,33 @@ def show_about():
     - **User Experience**: Beautiful, responsive UI with interactive visualizations
     - **Data Quality**: Comprehensive filtering and normalization for accurate insights
     
-    ## 📞 Contact & Support
+    ## Access Links
+    
+    ### Live Services
+    - **Dashboard (Streamlit)**: [http://localhost:8503](http://localhost:8503) or [http://127.0.0.1:8503](http://127.0.0.1:8503)
+    - **ML Model API (FastAPI)**: [http://localhost:8000](http://localhost:8000) or [http://127.0.0.1:8000](http://127.0.0.1:8000)
+      - Health Check: [http://localhost:8000/health](http://localhost:8000/health)
+      - API Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+    - **Career Recommendations API**: [http://localhost:8001](http://localhost:8001) or [http://127.0.0.1:8001](http://127.0.0.1:8001)
+      - Health Check: [http://localhost:8001/health](http://localhost:8001/health)
+    
+    ### API Endpoints
+    
+    **ML Model API (Port 8000)**:
+    - `POST /predict-salary` - Salary prediction with ML model
+    - `POST /forecast-skills` - Skill demand forecasting
+    - `GET /health` - API health check
+    
+    **Career API (Port 8001)**:
+    - `POST /career-recommendations` - Personalized skill recommendations
+    - `GET /health` - API health check
+    
+    ## Contact & Support
     
     For questions, issues, or contributions, please refer to the project repository or contact the development team.
     """)
     
-    st.success("🎉 **Thank you for using the Job Market Analysis Platform!** We hope this tool helps you make informed career decisions.")
+    st.success("**Thank you for using the Job Market Analysis Platform!** We hope this tool helps you make informed career decisions.")
 
 if __name__ == "__main__":
     main()

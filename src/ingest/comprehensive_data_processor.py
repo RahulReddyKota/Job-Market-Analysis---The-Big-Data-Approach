@@ -34,7 +34,7 @@ class ComprehensiveDataProcessor:
     
     def copy_kaggle_data(self):
         """Copy all Kaggle datasets to raw directory"""
-        logger.info("📊 Copying Kaggle datasets...")
+        logger.info("Copying Kaggle datasets...")
         
         source_dir = Path("/Users/manikantasirumalla/Desktop/untitled folder/Kaggle")
         target_dir = self.raw_dir / "kaggle"
@@ -55,7 +55,7 @@ class ComprehensiveDataProcessor:
                 target_file = target_dir / file_name
                 shutil.copy2(source_file, target_file)
                 copied_files.append(file_name)
-                logger.info(f"✅ Copied {file_name}")
+                logger.info(f"Copied {file_name}")
         
         # Archive-2 datasets (structured job data)
         archive2_dir = source_dir / "archive-2"
@@ -70,7 +70,7 @@ class ComprehensiveDataProcessor:
                 target_file.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(csv_file, target_file)
                 copied_files.append(f"archive-2/{rel_path}")
-                logger.info(f"✅ Copied archive-2/{rel_path}")
+                logger.info(f"Copied archive-2/{rel_path}")
         
         # Archive-3 datasets (Data Science jobs)
         archive3_dir = source_dir / "archive-3"
@@ -82,14 +82,14 @@ class ComprehensiveDataProcessor:
                 target_file = archive3_target / csv_file.name
                 shutil.copy2(csv_file, target_file)
                 copied_files.append(f"archive-3/{csv_file.name}")
-                logger.info(f"✅ Copied archive-3/{csv_file.name}")
+                logger.info(f"Copied archive-3/{csv_file.name}")
         
-        logger.info(f"✅ Kaggle data copy complete. {len(copied_files)} files copied")
+        logger.info(f"Kaggle data copy complete. {len(copied_files)} files copied")
         return copied_files
     
     def get_data_summary(self):
         """Get comprehensive summary of all available data"""
-        logger.info("📊 Comprehensive Data Summary:")
+        logger.info("Comprehensive Data Summary:")
         
         total_size = 0
         total_files = 0
@@ -101,7 +101,7 @@ class ComprehensiveDataProcessor:
             so_size = sum(f.stat().st_size for f in so_files) / (1024**2)
             total_size += so_size
             total_files += len(so_files)
-            logger.info(f"  📊 StackOverflow Surveys: {len(so_files)} files, {so_size:.1f} MB")
+            logger.info(f"  StackOverflow Surveys: {len(so_files)} files, {so_size:.1f} MB")
         
         # BLS data
         bls_dir = self.raw_dir / "bls"
@@ -110,7 +110,7 @@ class ComprehensiveDataProcessor:
             bls_size = sum(f.stat().st_size for f in bls_files) / (1024**2)
             total_size += bls_size
             total_files += len(bls_files)
-            logger.info(f"  📈 BLS Data: {len(bls_files)} files, {bls_size:.1f} MB")
+            logger.info(f"  BLS Data: {len(bls_files)} files, {bls_size:.1f} MB")
         
         # GitHub Archive data
         github_dir = self.raw_dir / "github"
@@ -119,7 +119,7 @@ class ComprehensiveDataProcessor:
             github_size = sum(f.stat().st_size for f in github_files) / (1024**3)
             total_size += github_size * 1024  # Convert to MB
             total_files += len(github_files)
-            logger.info(f"  🐙 GitHub Archive: {len(github_files)} files, {github_size:.2f} GB")
+            logger.info(f"  GitHub Archive: {len(github_files)} files, {github_size:.2f} GB")
         
         # Kaggle data
         kaggle_dir = self.raw_dir / "kaggle"
@@ -128,13 +128,13 @@ class ComprehensiveDataProcessor:
             kaggle_size = sum(f.stat().st_size for f in kaggle_files) / (1024**2)
             total_size += kaggle_size
             total_files += len(kaggle_files)
-            logger.info(f"  🏢 Kaggle Job Data: {len(kaggle_files)} files, {kaggle_size:.1f} MB")
+            logger.info(f"  Kaggle Job Data: {len(kaggle_files)} files, {kaggle_size:.1f} MB")
         
-        logger.info(f"  📊 TOTAL: {total_files} files, {total_size/1024:.2f} GB")
+        logger.info(f"  TOTAL: {total_files} files, {total_size/1024:.2f} GB")
     
     def process_stackoverflow_data(self):
         """Process StackOverflow survey data into bronze layer"""
-        logger.info("🔄 Processing StackOverflow data...")
+        logger.info("Processing StackOverflow data...")
         
         so_dir = self.raw_dir / "stackoverflow"
         bronze_so_dir = self.bronze_dir / "stackoverflow"
@@ -160,14 +160,14 @@ class ComprehensiveDataProcessor:
                 bronze_file = bronze_so_dir / f"survey_{year}_bronze.csv"
                 df.to_csv(bronze_file, index=False)
                 
-                logger.info(f"    ✅ Processed {len(df)} responses for {year}")
+                logger.info(f"  Processed {len(df)} responses for {year}")
                 
             except Exception as e:
-                logger.error(f"    ❌ Error processing {year}: {e}")
+                logger.error(f"   Error processing {year}: {e}")
     
     def process_kaggle_job_data(self):
         """Process Kaggle job datasets into bronze layer"""
-        logger.info("🔄 Processing Kaggle job data...")
+        logger.info("Processing Kaggle job data...")
         
         kaggle_dir = self.raw_dir / "kaggle"
         bronze_kaggle_dir = self.bronze_dir / "kaggle"
@@ -198,10 +198,10 @@ class ComprehensiveDataProcessor:
                     bronze_file = bronze_kaggle_dir / f"{dataset.replace('.csv', '')}_bronze.csv"
                     df.to_csv(bronze_file, index=False)
                     
-                    logger.info(f"    ✅ Processed {len(df)} records from {dataset}")
+                    logger.info(f"   Processed {len(df)} records from {dataset}")
                     
                 except Exception as e:
-                    logger.error(f"    ❌ Error processing {dataset}: {e}")
+                    logger.error(f" Error processing {dataset}: {e}")
         
         # Process archive-2 structured data
         archive2_dir = kaggle_dir / "archive-2"
@@ -223,14 +223,14 @@ class ComprehensiveDataProcessor:
                     bronze_file.parent.mkdir(parents=True, exist_ok=True)
                     df.to_csv(bronze_file, index=False)
                     
-                    logger.info(f"    ✅ Processed {len(df)} records from archive-2/{rel_path}")
+                    logger.info(f"   Processed {len(df)} records from archive-2/{rel_path}")
                     
                 except Exception as e:
-                    logger.error(f"    ❌ Error processing archive-2/{rel_path}: {e}")
+                    logger.error(f"   Error processing archive-2/{rel_path}: {e}")
     
     def create_unified_salary_dataset(self):
         """Create a unified salary dataset from all sources"""
-        logger.info("🔄 Creating unified salary dataset...")
+        logger.info("Creating unified salary dataset...")
         
         salary_data = []
         
@@ -250,7 +250,7 @@ class ComprehensiveDataProcessor:
                         salary_data.append(salary_df)
                         
                 except Exception as e:
-                    logger.warning(f"    ⚠️  Could not process salary data from {survey_file}: {e}")
+                    logger.warning(f"    Could not process salary data from {survey_file}: {e}")
         
         # Process Kaggle salary data
         bronze_kaggle_dir = self.bronze_dir / "kaggle"
@@ -265,7 +265,7 @@ class ComprehensiveDataProcessor:
                     salary_data.append(df)
                     
                 except Exception as e:
-                    logger.warning(f"    ⚠️  Could not process salary data from {salary_file}: {e}")
+                    logger.warning(f"     Could not process salary data from {salary_file}: {e}")
         
         # Combine all salary data
         if salary_data:
@@ -276,33 +276,33 @@ class ComprehensiveDataProcessor:
             silver_file = self.silver_dir / "unified_salary_data.csv"
             unified_salary.to_csv(silver_file, index=False)
             
-            logger.info(f"    ✅ Created unified salary dataset with {len(unified_salary)} records")
+            logger.info(f"  Created unified salary dataset with {len(unified_salary)} records")
         else:
-            logger.warning("    ⚠️  No salary data found to unify")
+            logger.warning("    No salary data found to unify")
     
     def run_full_pipeline(self):
         """Run the complete data processing pipeline"""
-        logger.info("🚀 Starting comprehensive data processing pipeline...")
+        logger.info("Starting comprehensive data processing pipeline...")
         
         # Step 1: Copy all data
-        logger.info("\n📥 Step 1: Copying all datasets...")
+        logger.info("\n Step 1: Copying all datasets...")
         self.copy_kaggle_data()
         
         # Step 2: Show data summary
-        logger.info("\n📊 Step 2: Data summary...")
+        logger.info("\n Step 2: Data summary...")
         self.get_data_summary()
         
         # Step 3: Process data into bronze layer
-        logger.info("\n🔄 Step 3: Processing data into bronze layer...")
+        logger.info("\n Step 3: Processing data into bronze layer...")
         self.process_stackoverflow_data()
         self.process_kaggle_job_data()
         
         # Step 4: Create unified datasets
-        logger.info("\n🔗 Step 4: Creating unified datasets...")
+        logger.info("\nStep 4: Creating unified datasets...")
         self.create_unified_salary_dataset()
         
-        logger.info("\n✅ Data processing pipeline complete!")
-        logger.info("📁 Data is now organized in:")
+        logger.info("\n Data processing pipeline complete!")
+        logger.info("Data is now organized in:")
         logger.info(f"   Raw: {self.raw_dir}")
         logger.info(f"   Bronze: {self.bronze_dir}")
         logger.info(f"   Silver: {self.silver_dir}")

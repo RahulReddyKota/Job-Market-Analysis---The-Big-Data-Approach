@@ -25,8 +25,6 @@ from src.common.logs import get_logger
 logger = get_logger("ingest.massive_github")
 
 class MassiveGitHubCollector:
-    """Collect massive amounts of GitHub Archive data (15+ GB)"""
-
     def __init__(self, output_dir=None):
         self.output_dir = Path(output_dir) if output_dir else RAW_DIR / "github"
         self.output_dir.mkdir(parents=True, exist_ok=True)

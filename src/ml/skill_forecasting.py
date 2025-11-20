@@ -37,6 +37,9 @@ def forecast_skill(df_skill: pd.DataFrame, horizon: int = 12) -> pd.DataFrame:
     X = pd.get_dummies(month.astype(int), prefix="m", drop_first=True)
     X["t"] = t
     y = s.values
+    # Ensure numeric types
+    X = X.astype(float)
+    y = y.astype(float)
     # Linear regression (ols)
     beta, *_ = np.linalg.lstsq(X.values, y, rcond=None)
     # Forecast horizon
@@ -53,6 +56,8 @@ def forecast_skill(df_skill: pd.DataFrame, horizon: int = 12) -> pd.DataFrame:
             X[c] = 0
     Xf = Xf[X.drop(columns=["t"]).columns]
     Xf["t"] = t_future
+    # Ensure numeric types
+    Xf = Xf.astype(float)
     y_pred = Xf.values @ beta
     out = pd.DataFrame({
         "date": future_idx,
@@ -79,6 +84,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 

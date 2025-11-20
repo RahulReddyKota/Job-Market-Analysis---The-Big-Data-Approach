@@ -37,7 +37,7 @@ class SalaryPredictionModel:
     
     def load_data(self, data_path="data/silver/unified_salaries.parquet"):
         """Load salary data for training"""
-        logger.info(f"📊 Loading salary data from {data_path}")
+        logger.info(f"Loading salary data from {data_path}")
         
         try:
             path = Path(data_path)
@@ -50,15 +50,15 @@ class SalaryPredictionModel:
                     df = pd.read_parquet(dir_path)
                 else:
                     raise FileNotFoundError(f"Not found: {path} or {dir_path}")
-            logger.info(f"✅ Loaded {len(df)} salary records")
+            logger.info(f"Loaded {len(df)} salary records")
             return df
         except Exception as e:
-            logger.error(f"❌ Failed to load data: {e}")
+            logger.error(f"Failed to load data: {e}")
             return None
     
     def prepare_features(self, df):
         """Prepare features for ML model"""
-        logger.info("🔄 Preparing features for ML model...")
+        logger.info("Preparing features for ML model...")
         
         # Clean and prepare data
         df_clean = df.copy()
@@ -107,12 +107,12 @@ class SalaryPredictionModel:
         
         self.feature_columns = features
         
-        logger.info(f"✅ Prepared {len(features)} features for {len(X)} samples")
+        logger.info(f"Prepared {len(features)} features for {len(X)} samples")
         return X, y
     
     def train_model(self, X, y, test_size=0.2, random_state=42):
         """Train XGBoost model with MLflow tracking"""
-        logger.info("🤖 Training XGBoost salary prediction model...")
+        logger.info("Training XGBoost salary prediction model...")
         
         # Split data
         X_train, X_test, y_train, y_test = train_test_split(
@@ -177,16 +177,16 @@ class SalaryPredictionModel:
             feature_importance = dict(zip(self.feature_columns, self.model.feature_importances_))
             mlflow.log_params(feature_importance)
             
-            logger.info("✅ Model training complete!")
-            logger.info(f"📊 Test MAE: ${test_mae:,.2f}")
-            logger.info(f"📊 Test RMSE: ${test_rmse:,.2f}")
-            logger.info(f"📊 Test R²: {test_r2:.3f}")
+            logger.info("Model training complete!")
+            logger.info(f"Test MAE: ${test_mae:,.2f}")
+            logger.info(f"Test RMSE: ${test_rmse:,.2f}")
+            logger.info(f"Test R²: {test_r2:.3f}")
             
             return metrics
     
     def save_model(self, model_path="ml/models/salary_model.pkl"):
         """Save trained model and preprocessors in API-compatible format"""
-        logger.info(f"💾 Saving model to {model_path}")
+        logger.info(f"Saving model to {model_path}")
         
         # Create models directory
         Path(model_path).parent.mkdir(parents=True, exist_ok=True)
@@ -207,28 +207,29 @@ class SalaryPredictionModel:
         }
         
         joblib.dump(model_data, model_path)
-        logger.info("✅ Model saved successfully")
+        logger.info("Model saved successfully")
     
     def load_model(self, model_path="models/salary_prediction_model.pkl"):
         """Load trained model and preprocessors"""
-        logger.info(f"📂 Loading model from {model_path}")
+        logger.info(f"Loading model from {model_path}")
         
         try:
             model_data = joblib.load(model_path)
-            self.model = model_data['model']
+            # Handle both old format ('model') and new format ('mean_model')
+            self.model = model_data.get('mean_model') or model_data.get('model')
             self.scaler = model_data['scaler']
             self.label_encoders = model_data['label_encoders']
             self.feature_columns = model_data['feature_columns']
-            logger.info("✅ Model loaded successfully")
+            logger.info("Model loaded successfully")
             return True
         except Exception as e:
-            logger.error(f"❌ Failed to load model: {e}")
+            logger.error(f"Failed to load model: {e}")
             return False
     
     def predict_salary(self, features_dict):
         """Predict salary for given features"""
         if self.model is None:
-            logger.error("❌ Model not loaded. Please train or load a model first.")
+            logger.error("Model not loaded. Please train or load a model first.")
             return None
         
         try:
@@ -246,16 +247,16 @@ class SalaryPredictionModel:
             # Make prediction
             prediction = self.model.predict(features_scaled)[0]
             
-            logger.info(f"💰 Predicted salary: ${prediction:,.2f}")
+            logger.info(f"Predicted salary: ${prediction:,.2f}")
             return prediction
             
         except Exception as e:
-            logger.error(f"❌ Prediction failed: {e}")
+            logger.error(f"Prediction failed: {e}")
             return None
 
 def main():
     """Main function to train salary prediction model"""
-    logger.info("🚀 Starting Salary Prediction Model Training")
+    logger.info("Starting Salary Prediction Model Training")
     
     # Initialize model
     model = SalaryPredictionModel()
@@ -268,7 +269,7 @@ def main():
     # Prepare features
     X, y = model.prepare_features(df)
     if len(X) == 0:
-        logger.error("❌ No features prepared. Exiting.")
+        logger.error("No features prepared. Exiting.")
         return
     
     # Train model
@@ -286,7 +287,7 @@ def main():
     
     prediction = model.predict_salary(example_features)
     
-    logger.info("🎉 Salary prediction model training complete!")
+    logger.info("Salary prediction model training complete!")
 
 if __name__ == "__main__":
     main()

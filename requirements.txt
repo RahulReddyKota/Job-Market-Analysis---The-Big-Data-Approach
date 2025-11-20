@@ -11,6 +11,7 @@ requests==2.32.3
 plotly==5.24.1
 streamlit==1.38.0
 tqdm>=4.67.0
+psutil>=5.9.0
 
 # Big Data Tools (Academic Requirements)
 pyspark==3.5.0
