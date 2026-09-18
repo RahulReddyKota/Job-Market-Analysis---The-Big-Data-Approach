@@ -100,26 +100,26 @@ job-market-analysis/
 
 ## Key Features
 
-### 🏗️ **Data Lake Architecture**
+###  **Data Lake Architecture**
 - **Raw Layer**: 126.54 GB of original data from 4 sources
 - **Bronze Layer**: 3.14 GB of cleaned and standardized data
 - **Silver Layer**: Unified datasets across sources
 - **Gold Layer**: ML-ready feature engineering
 
-### 🚀 **Big Data Tools**
+###  **Big Data Tools**
 - **Apache Spark**: Distributed data processing
 - **Delta Lake**: Versioned data storage
 - **Apache Airflow**: Workflow orchestration
 - **Apache Kafka**: Real-time streaming
 - **MLflow**: ML experiment tracking
 
-### 🤖 **Machine Learning**
+###  **Machine Learning**
 - **XGBoost**: Salary prediction model
 - **Feature Engineering**: Automated pipeline
 - **Model Serving**: FastAPI endpoints
 - **Experiment Tracking**: MLflow integration
 
-### 🌐 **API & Visualization**
+###  **API & Visualization**
 - **FastAPI**: REST API with 5+ endpoints
 - **Streamlit**: Interactive dashboards
 - **Real-time Data**: Live GitHub activity
